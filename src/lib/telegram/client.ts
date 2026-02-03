@@ -1,6 +1,8 @@
-import { MTProto } from '@mtproto/core';
+import pkg from '@mtproto/core';
 import { TELEGRAM_API_ID, TELEGRAM_API_HASH, TELEGRAM_SESSION } from '$env/static/private';
 import type { TelegramStats } from '$lib/types';
+
+const MTProto = pkg as any;
 
 interface ResolveUsernameResult {
 	_: 'contacts.resolveUsername';
@@ -70,7 +72,7 @@ interface GetFullUserResult {
 }
 
 class TelegramClient {
-	private client: MTProto;
+	private client: any;
 	private initialized: boolean = false;
 
 	constructor() {
@@ -79,6 +81,9 @@ class TelegramClient {
 			apiHash: TELEGRAM_API_HASH,
 			test: false,
 			session: TELEGRAM_SESSION || 'telegram_session',
+			storageOptions: {
+				path: (TELEGRAM_SESSION || 'telegram_session') + '.json',
+			},
 		});
 	}
 
@@ -86,7 +91,7 @@ class TelegramClient {
 		if (this.initialized) return;
 
 		try {
-			await this.client.call<GetFullUserResult>('users.getFullUser', {
+			await this.client.call('users.getFullUser', {
 				id: { _: 'me' },
 			});
 			this.initialized = true;
@@ -104,7 +109,7 @@ class TelegramClient {
 		const cleanUsername = channelUsername.replace('@', '');
 
 		try {
-			const result = await this.client.call<ResolveUsernameResult>('contacts.resolveUsername', {
+			const result = await this.client.call('contacts.resolveUsername', {
 				username: cleanUsername,
 			});
 
@@ -140,7 +145,7 @@ class TelegramClient {
 
 		try {
 			while (hasMore) {
-				const result = await this.client.call<GetHistoryResult>('messages.getHistory', {
+				const result = await this.client.call('messages.getHistory', {
 					peer: {
 						_: 'inputPeerChannel',
 						channel_id: channelId,
@@ -160,7 +165,7 @@ class TelegramClient {
 					break;
 				}
 
-				totalMessages += result.messages.filter((msg) => msg._ === 'message').length;
+				totalMessages += result.messages.filter((msg: any) => msg._ === 'message').length;
 
 				const lastMsg = result.messages[result.messages.length - 1];
 				if (lastMsg && lastMsg.id) {
@@ -205,7 +210,7 @@ class TelegramClient {
 		const cleanUsername = channelUsername.replace('@', '');
 
 		try {
-			const result = await this.client.call<ResolveUsernameResult>('contacts.resolveUsername', {
+			const result = await this.client.call('contacts.resolveUsername', {
 				username: cleanUsername,
 			});
 
@@ -213,8 +218,8 @@ class TelegramClient {
 				throw new Error('Channel not found');
 			}
 
-			const chat = result.chats[0] as any;
-			const fullResult = await this.client.call<GetFullChannelResult>('channels.getFullChannel', {
+			const chat = result.chats[0];
+			const fullResult = await this.client.call('channels.getFullChannel', {
 				channel: {
 					_: 'inputChannel',
 					channel_id: chat.id,
