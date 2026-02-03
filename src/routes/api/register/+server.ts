@@ -1,14 +1,14 @@
 
 
 import { db } from '$lib/db';
-import { users, stats, channels } from '$lib/db/schema';
+import { users, stats } from '$lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { fetchGitHubCommits, validateGitHubUsername } from '$lib/utils/github';
 import { calculateRatio } from '$lib/utils/calculations';
-import { ConflictError, ValidationError, DatabaseError, AppError } from '$lib/errors';
 import { logger } from '$lib/logger';
 import { checkRateLimit } from '$lib/rate-limit';
 import { validate, registerSchema } from '$lib/validation';
+import { telegramClient } from '$lib/telegram/client';
 import { error, json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import type { RegisterResponse, RegisterRequest } from '$lib/types';
@@ -144,13 +144,20 @@ export async function POST({ request }: RequestEvent): Promise<Response> {
 
 		logger.debug('Fetching channel stats', { requestId, telegramChannel });
 
-		const channelResult = await db
-			.select({ messageCount: channels.messageCount })
-			.from(channels)
-			.where(eq(channels.channelUsername, telegramChannel))
-			.limit(1);
+		let telegramMessages = 0;
+		try {
+			const tgStats = await telegramClient.getChannelStats(telegramChannel);
+			telegramMessages = tgStats.telegramMessages;
+			logger.info('Fetched Telegram stats', { requestId, telegramChannel, telegramMessages });
+		} catch (tgError: any) {
+			logger.warn('Failed to fetch Telegram stats, defaulting to 0', {
+				requestId,
+				telegramChannel,
+				error: tgError.message
+			});
+			telegramMessages = 0;
+		}
 
-		const telegramMessages = channelResult[0]?.messageCount ?? 0;
 		const ratio = calculateRatio(githubCommits, telegramMessages);
 
 
@@ -298,24 +305,11 @@ export async function POST({ request }: RequestEvent): Promise<Response> {
 		}
 
 	} catch (err) {
-
-		if (err instanceof AppError) {
-			logger.warn('Application error in registration', {
-				requestId,
-				errorCode: err.code,
-				errorMessage: err.message
-			});
-
-			return json(err.toApiError(), { status: err.status });
-		}
-
-
 		logger.error(
 			'Unexpected error in registration',
 			err instanceof Error ? err : new Error(String(err)),
 			{ requestId }
 		);
-
 
 		return json(
 			{

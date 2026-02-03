@@ -4,14 +4,11 @@
 	import UserBadge from './UserBadge.svelte';
 
 	interface User {
-		id: string;
 		username: string;
-		githubUsername: string;
-		telegramChannel: string;
-		commits: number;
-		messages: number;
-		score: number;
-		badge: 'coder' | 'yapper' | 'balanced';
+		githubCommits: number;
+		telegramMessages: number;
+		ratio: number;
+		ratioDifference?: number;
 	}
 
 	interface Props {
@@ -35,6 +32,12 @@
 	let searchQuery = $state('');
 
 	const totalPages = $derived(Math.ceil(totalUsers / pageSize));
+
+	function getBadge(ratio: number): 'coder' | 'yapper' | 'balanced' {
+		if (ratio < 0.5) return 'coder';
+		if (ratio > 2) return 'yapper';
+		return 'balanced';
+	}
 
 	function handleSearch(query: string) {
 		searchQuery = query;
@@ -68,9 +71,9 @@
 		</div>
 	{:else}
 		<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-			{#each users as user (user.id)}
+			{#each users as user}
 				<a
-					href="/{user.githubUsername}"
+					href="/{user.username}"
 					class="group relative overflow-hidden rounded-xl bg-stone-800/50 p-5
 					       border border-stone-700/50
 					       transition-all duration-200 ease-[cubic-bezier(0.4,0.0,0.2,1)]
@@ -86,29 +89,29 @@
 							<div>
 								<h4 class="font-semibold text-stone-200 group-hover:text-stone-100
 								           transition-colors duration-200">
-									{user.githubUsername}
+									{user.username}
 								</h4>
 								<p class="text-xs text-stone-500">@{user.username}</p>
 							</div>
 						</div>
-						<UserBadge type={user.badge} size="sm" />
+						<UserBadge type={getBadge(user.ratio)} size="sm" />
 					</div>
 
 					<div class="grid grid-cols-2 gap-3 pt-3 border-t border-stone-700/30">
 						<div class="flex flex-col">
 							<span class="text-xs text-stone-500">Commits</span>
-							<span class="text-lg font-semibold text-stone-300">{user.commits.toLocaleString()}</span>
+							<span class="text-lg font-semibold text-stone-300">{user.githubCommits.toLocaleString()}</span>
 						</div>
 						<div class="flex flex-col">
 							<span class="text-xs text-stone-500">Messages</span>
-							<span class="text-lg font-semibold text-stone-300">{user.messages.toLocaleString()}</span>
+							<span class="text-lg font-semibold text-stone-300">{user.telegramMessages.toLocaleString()}</span>
 						</div>
 					</div>
 
 					<div class="mt-3 pt-3 border-t border-stone-700/30">
 						<div class="flex items-center justify-between">
-							<span class="text-xs text-stone-500">Score</span>
-							<span class="text-sm font-semibold text-stone-200">{user.score.toFixed(1)}</span>
+							<span class="text-xs text-stone-500">Ratio</span>
+							<span class="text-sm font-semibold text-stone-200">{user.ratio.toFixed(2)}</span>
 						</div>
 					</div>
 
@@ -122,7 +125,7 @@
 			<div class="flex justify-center pt-4">
 				<Pagination
 					currentPage={currentPage}
-					totalPages={totalPages}
+					{totalPages}
 					onpagechange={onpagechange}
 				/>
 			</div>

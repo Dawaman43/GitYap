@@ -22,6 +22,7 @@ export const stats = pgTable('stats', {
 export const channels = pgTable('channels', {
 	id: uuid('id').defaultRandom().primaryKey(),
 	channelUsername: varchar('channel_username', { length: 255 }).notNull().unique(),
+	channelPhoto: varchar('channel_photo', { length: 512 }).default('').notNull(),
 	messageCount: integer('message_count').default(0).notNull(),
 	isBotAdmin: boolean('is_bot_admin').default(false).notNull(),
 	addedAt: timestamp('added_at').defaultNow().notNull(),

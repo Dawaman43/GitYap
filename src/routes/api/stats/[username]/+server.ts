@@ -80,13 +80,15 @@ export async function GET({ params, request }: RequestEvent): Promise<Response> 
 
 		const channelResult = await db
 			.select({
-				messageCount: channels.messageCount
+				messageCount: channels.messageCount,
+				channelPhoto: channels.channelPhoto
 			})
 			.from(channels)
 			.where(eq(channels.channelUsername, user.telegramChannel))
 			.limit(1);
 
 		const telegramMessages = channelResult[0]?.messageCount ?? 0;
+		const channelPhoto = channelResult[0]?.channelPhoto ?? '';
 
 
 		logger.debug('Fetching GitHub commits', { requestId, username });
@@ -155,6 +157,7 @@ export async function GET({ params, request }: RequestEvent): Promise<Response> 
 			telegramMessages,
 			ratio,
 			telegramChannel: user.telegramChannel,
+			channelPhoto,
 			userType,
 			percentageDifference
 		};

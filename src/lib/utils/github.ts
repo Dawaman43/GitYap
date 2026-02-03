@@ -1,13 +1,11 @@
 
 
 import { GITHUB_TOKEN } from '$env/static/private';
-import { ExternalApiError, NotFoundError } from '../errors';
 import { logger } from '../logger';
 import type { GitHubEvent, GitHubUser, Result } from '../types';
 import { err, ok } from '../types';
 
 const GITHUB_API_BASE = 'https://api.github.com';
-
 const MAX_EVENTS_PER_PAGE = 100;
 
 function createGitHubHeaders(): Record<string, string> {
@@ -16,155 +14,104 @@ function createGitHubHeaders(): Record<string, string> {
 		'User-Agent': 'GitYap-App/1.0'
 	};
 
-
 	if (GITHUB_TOKEN && GITHUB_TOKEN.length > 0 && GITHUB_TOKEN !== 'dummy_token_for_build') {
 		headers['Authorization'] = `Bearer ${GITHUB_TOKEN}`;
-		logger.debug('Using authenticated GitHub API request');
-	} else {
-		logger.debug('Using unauthenticated GitHub API request (lower rate limit)');
 	}
 
 	return headers;
 }
 
-async function handleGitHubError(
-	response: Response,
-	username: string,
-	operation: string
-): Promise<never> {
-	let errorMessage: string;
-	let isRetryable = false;
-
-	switch (response.status) {
-		case 404:
-			throw new NotFoundError('GitHub user', username);
-
-		case 403:
-			errorMessage = 'GitHub API rate limit exceeded. Try again later or add a GitHub token.';
-			isRetryable = true;
-			break;
-
-		case 401:
-			errorMessage = 'GitHub authentication failed. Check your GitHub token.';
-			break;
-
-		case 500:
-		case 502:
-		case 503:
-		case 504:
-			errorMessage = `GitHub service temporarily unavailable (${response.status})`;
-			isRetryable = true;
-			break;
-
-		default:
-			errorMessage = `GitHub API error: ${response.status}`;
-	}
-
-
-	let details: Record<string, unknown> = { status: response.status };
-	try {
-		const body = await response.json();
-		details.message = body.message;
-		details.documentation_url = body.documentation_url;
-	} catch {
-
-	}
-
-	throw new ExternalApiError(
-		'GitHub',
-		errorMessage,
-		response.status,
-		isRetryable
-	);
-}
-
-async function fetchGitHubEvents(
-	username: string
-): Promise<Result<GitHubEvent[], Error>> {
+async function fetchAllCommitsCount(username: string): Promise<number> {
 	const headers = createGitHubHeaders();
-
-	logger.info('Fetching GitHub events', { username, operation: 'fetch_events' });
+	headers['Accept'] = 'application/vnd.github.cloak-preview+json';
 
 	try {
+		logger.info('Fetching all-time commit count via Search API', { username });
+
 		const response = await fetch(
-			`${GITHUB_API_BASE}/users/${encodeURIComponent(username)}/events/public?per_page=${MAX_EVENTS_PER_PAGE}`,
+			`${GITHUB_API_BASE}/search/commits?q=author:${encodeURIComponent(username)}&per_page=1`,
 			{ headers }
 		);
 
 		if (!response.ok) {
-			await handleGitHubError(response, username, 'fetch_events');
+			logger.warn('Search API failed, falling back to events', { username, status: response.status });
+			return 0;
+		}
+
+		const data = await response.json();
+		const totalCommits = data.total_count || 0;
+
+		logger.info('Search API success', { username, totalCommits });
+
+		return totalCommits;
+	} catch (error) {
+		logger.error('Search API error', error as Error, { username });
+		return 0;
+	}
+}
+
+async function fetchRecentCommits(username: string): Promise<number> {
+	const headers = createGitHubHeaders();
+
+	try {
+		logger.info('Fetching recent events', { username });
+
+		const response = await fetch(
+			`${GITHUB_API_BASE}/users/${encodeURIComponent(username)}/events/public?per_page=100`,
+			{ headers }
+		);
+
+		if (!response.ok) {
+			logger.warn('Events API failed', { username, status: response.status });
+			return 0;
 		}
 
 		const events: GitHubEvent[] = await response.json();
 
-		logger.info('Successfully fetched GitHub events', {
-			username,
-			eventCount: events.length
-		});
+		let commitCount = 0;
+		for (const event of events) {
+			if (event.type === 'PushEvent' && event.payload?.commits) {
+				commitCount += event.payload.commits.length;
+			}
+		}
 
-		return ok(events);
+		logger.info('Events API success', { username, recentCommits: commitCount });
 
+		return commitCount;
 	} catch (error) {
-		if (error instanceof ExternalApiError || error instanceof NotFoundError) {
-			return err(error);
-		}
-
-		logger.error('Unexpected error fetching GitHub events', error as Error, { username });
-
-		return err(new ExternalApiError(
-			'GitHub',
-			`Failed to fetch events: ${(error as Error).message}`,
-			undefined,
-			true
-		));
+		logger.error('Events API error', error as Error, { username });
+		return 0;
 	}
-}
-
-function countCommitsFromEvents(events: GitHubEvent[]): number {
-	let commitCount = 0;
-
-	for (const event of events) {
-
-		if (event.type === 'PushEvent' && event.payload?.commits) {
-			commitCount += event.payload.commits.length;
-		}
-	}
-
-	return commitCount;
 }
 
 export async function fetchGitHubCommits(
 	username: string
 ): Promise<Result<number, Error>> {
-
 	if (!username || typeof username !== 'string') {
-		return err(new ExternalApiError(
-			'GitHub',
-			'Invalid username provided',
-			400,
-			false
-		));
+		return err(new Error('Invalid username provided'));
 	}
 
 	const normalizedUsername = username.trim().toLowerCase();
 
+	logger.info('Fetching GitHub commits', { username: normalizedUsername });
 
-	const eventsResult = await fetchGitHubEvents(normalizedUsername);
+	try {
+		const allTimeCommits = await fetchAllCommitsCount(normalizedUsername);
 
-	if (!eventsResult.success) {
-		return err(eventsResult.error);
+		if (allTimeCommits > 0) {
+			logger.info('Using all-time commit count', { username: normalizedUsername, count: allTimeCommits });
+			return ok(allTimeCommits);
+		}
+
+		const recentCommits = await fetchRecentCommits(normalizedUsername);
+
+		logger.info('Using recent commits count', { username: normalizedUsername, count: recentCommits });
+
+		return ok(recentCommits);
+	} catch (error) {
+		logger.error('Failed to fetch commits', error as Error, { username: normalizedUsername });
+		return err(error as Error);
 	}
-
-
-	const commitCount = countCommitsFromEvents(eventsResult.data);
-
-	logger.info('Calculated GitHub commit count', {
-		username: normalizedUsername,
-		commitCount,
-		eventsProcessed: eventsResult.data.length
-	});
-
-	return ok(commitCount);
 }
 
 export async function fetchGitHubUser(
@@ -173,42 +120,29 @@ export async function fetchGitHubUser(
 	const headers = createGitHubHeaders();
 	const normalizedUsername = username.trim().toLowerCase();
 
-	logger.info('Fetching GitHub user profile', { username: normalizedUsername });
-
 	try {
+		logger.info('Fetching GitHub user', { username: normalizedUsername });
+
 		const response = await fetch(
 			`${GITHUB_API_BASE}/users/${encodeURIComponent(normalizedUsername)}`,
 			{ headers }
 		);
 
 		if (!response.ok) {
-			await handleGitHubError(response, normalizedUsername, 'fetch_user');
+			if (response.status === 404) {
+				return ok(null);
+			}
+			throw new Error(`GitHub API error: ${response.status}`);
 		}
 
 		const user: GitHubUser = await response.json();
 
-		logger.info('Successfully fetched GitHub user', {
-			username: normalizedUsername,
-			userId: user.id
-		});
+		logger.info('Successfully fetched GitHub user', { username: normalizedUsername, userId: user.id });
 
 		return ok(user);
-
 	} catch (error) {
-		if (error instanceof ExternalApiError || error instanceof NotFoundError) {
-			return err(error);
-		}
-
-		logger.error('Unexpected error fetching GitHub user', error as Error, {
-			username: normalizedUsername
-		});
-
-		return err(new ExternalApiError(
-			'GitHub',
-			`Failed to fetch user: ${(error as Error).message}`,
-			undefined,
-			true
-		));
+		logger.error('Failed to fetch GitHub user', error as Error, { username: normalizedUsername });
+		return err(error as Error);
 	}
 }
 
@@ -219,10 +153,6 @@ export async function validateGitHubUsername(
 
 	if (result.success) {
 		return ok(result.data !== null);
-	}
-
-	if (result.error instanceof NotFoundError) {
-		return ok(false);
 	}
 
 	return err(result.error);

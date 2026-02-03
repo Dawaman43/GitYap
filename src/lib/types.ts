@@ -32,6 +32,8 @@ export interface Channel {
 
 	channelUsername: string;
 
+	channelPhoto: string;
+
 	messageCount: number;
 
 	isBotAdmin: boolean;
@@ -72,6 +74,8 @@ export interface UserStatsResponse {
 	ratio: number;
 
 	telegramChannel: string;
+
+	channelPhoto: string;
 
 	userType: UserType;
 
@@ -236,6 +240,20 @@ export interface TelegramChannelPost {
 	};
 	date: number;
 	text?: string;
+}
+
+export interface TelegramStats {
+	channelUsername: string;
+	telegramMessages: number;
+	channelInfo?: {
+		title: string;
+		memberCount?: number;
+	};
+}
+
+export interface TelegramAuthState {
+	phoneCodeHash?: string;
+	phoneNumber?: string;
 }
 
 export type Result<T, E = Error> =

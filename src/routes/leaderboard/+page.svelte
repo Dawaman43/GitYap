@@ -2,16 +2,16 @@
 	import SimilarUsersGrid from '$lib/components/SimilarUsersGrid.svelte';
 	import SearchBar from '$lib/components/SearchBar.svelte';
 
-	let users = $state<{
-		id: string;
+	interface User {
+		rank: number;
 		username: string;
-		githubUsername: string;
-		telegramChannel: string;
-		commits: number;
-		messages: number;
-		score: number;
-		badge: 'coder' | 'yapper' | 'balanced';
-	}[]>([]);
+		githubCommits: number;
+		telegramMessages: number;
+		ratio: number;
+		totalActivity: number;
+	}
+
+	let users = $state<User[]>([]);
 
 	let loading = $state(true);
 	let currentPage = $state(1);
@@ -28,15 +28,14 @@
 		try {
 			const params = new URLSearchParams({
 				page: currentPage.toString(),
-				limit: pageSize.toString(),
 				...(searchQuery && { search: searchQuery })
 			});
 
 			const response = await fetch(`/api/leaderboard?${params}`);
 			if (response.ok) {
 				const data = await response.json();
-				users = data.users;
-				totalUsers = data.total;
+				users = data.users || [];
+				totalUsers = data.pagination?.totalCount || 0;
 			}
 		} catch (e) {
 			console.error('Failed to load users:', e);
@@ -65,7 +64,6 @@
 
 <div class="min-h-[calc(100vh-4rem)] py-8 px-4">
 	<div class="max-w-6xl mx-auto space-y-8">
-		<!-- Header -->
 		<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-6 border-b border-stone-700/50">
 			<div>
 				<h1 class="text-3xl font-bold text-stone-100">Leaderboard</h1>
